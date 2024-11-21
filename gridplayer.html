@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Robust Video Grid</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: black;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 10px;
+      width: 100%;
+      height: 100%;
+    }
+
+    .video-item {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      cursor: pointer;
+    }
+
+    .video-preview {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      pointer-events: none;
+    }
+
+    .fullscreen-player {
+      position: absolute;
+      z-index: 10;
+      display: none;
+      background: black;
+    }
+
+    .fullscreen-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  </style>
+</head>
+<body>
+  <div class="grid" id="video-grid"></div>
+  <div class="fullscreen-player" id="fullscreen-player">
+    <video class="fullscreen-video" autoplay playsinline></video>
+  </div>
+
+  <script>
+    const videos = [
+      {
+        src: "https://download.blender.org/peach/bigbuckbunny_movies/big_buck_bunny_1080p_h264.mov",
+        startSecond: 5,
+        endSecond: 15,
+      },
+      {
+        src: "http://ftp.halifax.rwth-aachen.de/blender/demo/movies/ToS/tears_of_steel_1080p.mov",
+        startSecond: 10,
+        endSecond: 20,
+      },
+      {
+        src: "https://upload.wikimedia.org/wikipedia/commons/7/7a/Charge_-_Blender_Open_Movie-full_movie.webm",
+        startSecond: 0,
+        endSecond: 10,
+      },
+      {
+        src: "https://archive.org/download/CaminandesLlamigos/Caminandes_%20Llamigos-1080p.mp4",
+        startSecond: 3,
+        endSecond: 8,
+      },
+    ];
+
+    const state = {
+      isTransitioning: false,
+      isFullscreenActive: false,
+    };
+
+    const grid = document.getElementById("video-grid");
+    const fullscreenPlayer = document.getElementById("fullscreen-player");
+    const fullscreenVideo = fullscreenPlayer.querySelector("video");
+    let activeVideoItem = null;
+
+    function createGrid() {
+      videos.forEach(({ src, startSecond, endSecond }, index) => {
+        const videoItem = document.createElement("div");
+        videoItem.className = "video-item";
+
+        const video = document.createElement("video");
+        video.className = "video-preview";
+        video.src = src;
+        video.preload = "metadata";
+        video.loop = false;
+        video.muted = true;
+        video.autoplay = true;
+        video.playsInline = true;
+
+        video.onloadeddata = () => {
+          video.currentTime = startSecond;
+          video.play();
+        };
+
+        video.ontimeupdate = () => {
+          if (video.currentTime >= endSecond) {
+            video.currentTime = startSecond; // Vorschau-Loop
+          }
+        };
+
+        videoItem.onclick = () => handleFullscreen(videoItem, video, src);
+        videoItem.appendChild(video);
+        grid.appendChild(videoItem);
+      });
+    }
+
+    function handleFullscreen(videoItem, video, src) {
+      if (state.isTransitioning) {
+        console.log("Transition in progress, ignoring click.");
+        return;
+      }
+
+      state.isTransitioning = true;
+
+      const rect = videoItem.getBoundingClientRect();
+      activeVideoItem = videoItem;
+
+      fullscreenVideo.src = src;
+      fullscreenVideo.currentTime = 0;
+      fullscreenVideo.volume = 0;
+      fullscreenVideo.muted = false;
+
+      fullscreenPlayer.style.top = `${rect.top}px`;
+      fullscreenPlayer.style.left = `${rect.left}px`;
+      fullscreenPlayer.style.width = `${rect.width}px`;
+      fullscreenPlayer.style.height = `${rect.height}px`;
+      fullscreenPlayer.style.display = "block";
+      fullscreenPlayer.style.opacity = "1";
+
+      fullscreenVideo.onloadeddata = () => {
+        fullscreenVideo.play();
+        console.log("Video loaded, starting fullscreen transition.");
+        gsap.timeline()
+          .to(document.querySelectorAll(".video-preview"), {
+            duration: 2,
+            opacity: 0,
+            onComplete: () => Array.from(document.querySelectorAll(".video-preview")).forEach(v => v.pause()),
+          })
+          .to(fullscreenVideo, { duration: 0.6, volume: 1 }, 0)
+          .to(fullscreenPlayer, {
+            duration: 2,
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+          }, 0)
+          .call(() => {
+            state.isFullscreenActive = true;
+            state.isTransitioning = false;
+            console.log("Fullscreen transition complete.");
+          });
+      };
+    }
+
+    function closeFullscreen() {
+      if (state.isTransitioning) {
+        console.log("Transition in progress, ignoring close.");
+        return;
+      }
+
+      if (!state.isFullscreenActive) {
+        console.log("Fullscreen not active, ignoring close.");
+        return;
+      }
+
+      state.isTransitioning = true;
+
+      const rect = activeVideoItem?.getBoundingClientRect();
+      if (!rect) {
+        console.error("No active video item, forcing close.");
+        resetPlayer();
+        return;
+      }
+
+      console.log("Starting fullscreen close transition.");
+      gsap.timeline()
+        .to(fullscreenVideo, { duration: 0.6, volume: 0 }, 0)
+        .to(fullscreenPlayer, {
+          duration: 2,
+          top: `${rect.top}px`,
+          left: `${rect.left}px`,
+          width: `${rect.width}px`,
+          height: `${rect.height}px`,
+        }, 0)
+        .to(document.querySelectorAll(".video-preview"), {
+          duration: 2,
+          opacity: 1,
+          onStart: () => {
+            Array.from(document.querySelectorAll(".video-preview")).forEach(v => v.play());
+          },
+        }, 0)
+        .to(fullscreenPlayer, {
+          duration: 0.5,
+          opacity: 0,
+          onComplete: () => {
+            console.log("Fullscreen close transition complete.");
+            resetPlayer();
+          },
+        });
+    }
+
+    function resetPlayer() {
+      console.log("Resetting fullscreen player.");
+      fullscreenPlayer.style.display = "none";
+      fullscreenVideo.pause();
+      fullscreenVideo.src = "";
+      activeVideoItem = null;
+      state.isFullscreenActive = false;
+      state.isTransitioning = false;
+    }
+
+    fullscreenPlayer.onclick = closeFullscreen;
+
+    createGrid();
+  </script>
+</body>
+</html>
